@@ -2,18 +2,29 @@
   const $ = (id) => document.getElementById(id);
   const map = L.map("map", { zoomControl: true, rotate: true, rotateControl: false }).setView([46.5, 6.3], 8);
   const trackRenderer = L.canvas({ padding: 0.5 });
+  const segmentSensitivity = 5;
   const imagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
     maxZoom: 19,
     attribution: "Tiles &copy; Esri"
   });
-  const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  const streets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
     maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors"
+    attribution: "Sources: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, &copy; OpenStreetMap contributors, and the GIS User Community"
+  });
+  streets.on("tileerror", (event) => {
+    event.tile.style.display = "none";
+    $("map").classList.add("tiles-blocked");
+    showNotice("Le fond cartographique routier est inaccessible depuis ce réseau. Le tracé reste visible.", true);
+  });
+  streets.on("tileload", () => {
+    $("map").classList.remove("tiles-blocked");
+    clearNotice();
   });
   imagery.addTo(map);
   const layer = L.layerGroup().addTo(map);
   const speedMarkerLayer = L.layerGroup().addTo(map);
-  const brakingLayer = L.layerGroup().addTo(map);
+  const slidingLayer = L.layerGroup().addTo(map);
+  const airbrakeLayer = L.layerGroup().addTo(map);
   let records = [];
   let rawRows = [];
   let meta = {};
@@ -132,7 +143,6 @@
     }
 
     $("color-min-speed-value").textContent = `${minValue.toFixed(0)} km/h`;
-    $("color-max-speed-value").textContent = `${maxValue.toFixed(2)} km/h`;
   }
 
   function setColorDefaultsForSession() {
@@ -143,10 +153,6 @@
     maxInput.value = topSpeed.toFixed(2);
     minInput.value = String(Math.min(30, Math.max(0, topSpeed - 0.01)));
     syncColorLimits();
-  }
-
-  function syncSegmentSensitivity() {
-    $("segment-sensitivity-value").textContent = `${$("segment-sensitivity").value} km/h`;
   }
 
   function showNotice(message, error = false) {
@@ -917,7 +923,7 @@
     $("duration").textContent = formatDuration(elapsed);
     $("altitude").innerHTML = `${minAltitude.toFixed(0)} <small>/</small> ${maxAltitude.toFixed(0)} <small>m</small>`;
 
-    const segments = findSpeedSegments(points, Number($("segment-sensitivity").value));
+    const segments = findSpeedSegments(points, segmentSensitivity);
     const brakingModes = findBrakingModes(points);
     const weakBrakingZones = brakingModes.filter((zone) => zone.mode === "weak");
     const strongBrakingZones = brakingModes.filter((zone) => zone.mode === "strong");
@@ -926,7 +932,8 @@
     refreshHoverPixelPoints(points);
     layer.clearLayers();
     speedMarkerLayer.clearLayers();
-    brakingLayer.clearLayers();
+    slidingLayer.clearLayers();
+    airbrakeLayer.clearLayers();
     const latLngs = points.map((row) => [row.lat, row.mapLon]);
     for (let i = 1; i < points.length; i++) {
       const previous = points[i - 1];
@@ -953,7 +960,7 @@
           lineJoin: "round",
           renderer: trackRenderer,
           interactive: false
-        }).addTo(brakingLayer);
+        }).addTo(airbrakeLayer);
       }
     });
     strongBrakingZones.forEach((zone) => {
@@ -967,7 +974,7 @@
           lineJoin: "round",
           renderer: trackRenderer,
           interactive: false
-        }).addTo(brakingLayer);
+        }).addTo(slidingLayer);
       }
     });
     L.circleMarker(latLngs[0], { radius: 5, color: "#fff", weight: 2, fillColor: "#3287ff", fillOpacity: 1 }).bindPopup("Départ").addTo(layer);
@@ -1009,7 +1016,8 @@
       records = [];
       layer.clearLayers();
       speedMarkerLayer.clearLayers();
-      brakingLayer.clearLayers();
+      slidingLayer.clearLayers();
+      airbrakeLayer.clearLayers();
       chartPoints = [];
       chartRange = null;
       selectedPointIndex = null;
@@ -1030,13 +1038,13 @@
   }
 
   $("file-input").addEventListener("change", (event) => loadFile(event.target.files[0]));
-  $("segment-sensitivity").addEventListener("input", () => {
-    syncSegmentSensitivity();
-    if (records.length) updateView();
+  $("show-sliding-zone").addEventListener("change", (event) => {
+    if (event.target.checked) slidingLayer.addTo(map);
+    else map.removeLayer(slidingLayer);
   });
-  $("show-braking").addEventListener("change", (event) => {
-    if (event.target.checked) brakingLayer.addTo(map);
-    else map.removeLayer(brakingLayer);
+  $("show-airbrake-zone").addEventListener("change", (event) => {
+    if (event.target.checked) airbrakeLayer.addTo(map);
+    else map.removeLayer(airbrakeLayer);
   });
   $("show-speed-markers").addEventListener("change", (event) => {
     if (event.target.checked) speedMarkerLayer.addTo(map);
@@ -1144,6 +1152,8 @@
     if (event.target.checked) {
       map.removeLayer(streets);
       imagery.addTo(map);
+      $("map").classList.remove("tiles-blocked");
+      clearNotice();
     } else {
       map.removeLayer(imagery);
       streets.addTo(map);
@@ -1160,7 +1170,6 @@
   window.addEventListener("resize", () => map.invalidateSize());
 
   syncColorLimits();
-  syncSegmentSensitivity();
   syncSmoothingControls();
 
   const params = new URLSearchParams(location.search);

@@ -92,7 +92,7 @@ Les bibliothèques sont chargées depuis un CDN, sans gestionnaire de paquets :
 - [Leaflet 1.9.4](https://leafletjs.com/) pour la carte.
 - [Leaflet.Rotate 0.2.8](https://github.com/Raruto/leaflet-rotate) pour l’orientation de la carte.
 
-Les fonds cartographiques proviennent d’Esri (imagerie satellite) et d’OpenStreetMap (carte routière). Leur attribution est affichée sur la carte.
+Les fonds satellite et routier utilisent les services ArcGIS d’Esri. L’attribution fournie par Esri est affichée sur la carte.
 
 ## Données personnelles
 

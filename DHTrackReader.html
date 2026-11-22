@@ -28,41 +28,32 @@
         <div class="stat"><span>Altitude min / max</span><strong id="altitude">—</strong></div>
       </div>
 
-      <div class="section-label">Affichage</div>
-      <div class="controls">
-        <label class="control"><input id="satellite" type="checkbox" checked> Fond satellite</label>
-        <label class="control"><input id="show-braking" type="checkbox" checked> Freinages et glisses (bleu / violet)</label>
-        <label class="control"><input id="show-speed-markers" type="checkbox" checked> Afficher Points Vmax Vmin</label>
-      </div>
+      <section class="settings-panel" aria-label="Réglages d'affichage">
+        <div class="section-label">Réglages</div>
+        <div class="controls">
+          <label class="control"><input id="satellite" type="checkbox" checked> Fond satellite</label>
+          <label class="control"><input id="show-sliding-zone" type="checkbox" checked> Sliding zone (violet)</label>
+          <label class="control"><input id="show-airbrake-zone" type="checkbox" checked> Airbrake zone (bleu)</label>
+          <label class="control"><input id="show-speed-markers" type="checkbox" checked> Afficher Points Vmax Vmin</label>
+        </div>
 
-      <div class="section-label">Couleur de la trace</div>
-      <div class="color-scales">
-        <label class="range-row">
-          <span>Vitesse min (vert)</span>
-          <div class="range-wrap">
-            <input id="color-min-speed" type="range" min="0" max="200" step="1" value="30">
-            <strong id="color-min-speed-value">30 km/h</strong>
-          </div>
-        </label>
-        <label class="range-row">
-          <span>Vitesse max (rouge)</span>
-          <div class="range-wrap">
-            <input id="color-max-speed" type="range" min="0" max="200" step="0.01" value="150">
-            <strong id="color-max-speed-value">150 km/h</strong>
-          </div>
-        </label>
-      </div>
+        <div class="color-scales">
+          <label class="range-row">
+            <span>Vitesse min (vert)</span>
+            <div class="range-wrap">
+              <input id="color-min-speed" type="range" min="0" max="200" step="1" value="30">
+              <strong id="color-min-speed-value">30 km/h</strong>
+            </div>
+          </label>
+          <label class="range-row">
+            <span>Vitesse max (rouge)</span>
+            <div class="range-wrap">
+              <input id="color-max-speed" type="range" min="0" max="200" step="0.01" value="150">
+            </div>
+          </label>
+        </div>
+      </section>
 
-      <p class="hint">Les couleurs sont interpolées entre le vert à la vitesse minimale et le rouge à la vitesse maximale.</p>
-      <div class="section-label">Détection VMax / VMin</div>
-      <label class="sensitivity" for="segment-sensitivity">
-        <span>Variation minimale de vitesse</span>
-        <input id="segment-sensitivity" type="range" min="2" max="12" step="1" value="5">
-        <strong id="segment-sensitivity-value">5 km/h</strong>
-      </label>
-      <p class="hint">Réduisez ce seuil pour détecter des ralentissements moins marqués. Les décélérations jusqu'à l'arrêt sont aussi prises en compte.</p>
-      <div class="section-label">Détection des freinages</div>
-      <p class="hint">Le bleu indique une baisse de vitesse modérée. Le violet indique un slide lorsque GyroZ dépasse 50 °/s pendant une perte de vitesse.</p>
       <div id="notice" class="notice" role="status"></div>
       <div id="session" class="session"></div>
     </aside>
@@ -70,7 +61,7 @@
       <div class="map-panel">
         <div id="map" aria-label="Carte du parcours"></div>
         <div id="empty" class="empty"><strong>Chargez une session RaceBox</strong><br>Le tracé, les points VMax et VMin, les freinages et les statistiques apparaîtront ici.</div>
-        <div class="legend"><span><i class="dot max"></i> VMax ligne droite</span><span><i class="dot min"></i> VMin virage</span><span><i class="dot braking-weak"></i> Ralentissement</span><span><i class="dot braking-strong"></i> Slide (GyroZ &gt; 50 °/s)</span></div>
+        <div class="legend"><span><i class="dot max"></i> Max Speed</span><span><i class="dot min"></i> Min Speed</span><span><i class="dot braking-weak"></i> Airbrake</span><span><i class="dot braking-strong"></i> Slide</span></div>
       </div>
       <section class="telemetry" aria-label="Télémétrie de la session">
         <div class="chart-smoothing-tools" aria-label="Lissage du graphique">
