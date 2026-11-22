@@ -11,6 +11,7 @@ DH Track Reader est une application web statique pour visualiser une session de 
 - Graphique de vitesse interactif : sélection d’un point, zoom, déplacement et lissage de la courbe.
 - Affichage des données de télémétrie disponibles : altitude, pente, gyroscope et accélération.
 - Chargement d’un fichier CSV par sélection ou glisser-déposer.
+- Enregistrement local de Spots (départ/arrivée GPS) et vue Chrono recoupée sur un Spot reconnu.
 
 ## Lancer l’application
 
@@ -69,11 +70,13 @@ Les coordonnées sont détectées automatiquement : degrés décimaux, degrés/m
 
 ## Utilisation
 
+- **Menu supérieur** : les sections « CARTE », « RUN PREVIEW » et « SPOT LIST » sont indiquées en haut de la page. « HIDE » masque la barre ; « SHOW MENU » la réaffiche.
 - **Carte** : basculer entre le fond satellite et le fond routier, orienter la carte avec la boussole ou activer le suivi du rider.
 - **Trace** : ajuster les seuils de vitesse qui déterminent ses couleurs.
 - **VMax/VMin** : modifier la variation minimale de vitesse pour régler la détection des segments.
 - **Graphique** : cliquer ou déplacer le curseur pour consulter la télémétrie ; zoomer avec la molette, déplacer la vue en faisant glisser le graphique et régler les limites de la session avec les poignées.
 - **Freinages et marqueurs** : afficher ou masquer les couches correspondantes depuis le panneau latéral.
+- **Spots** : en Vue fichier CSV, recouper le run avec les poignées du graphique, puis choisir « Enregistrer le Spot ». Les Spots et leurs coordonnées restent stockés dans le navigateur utilisé. Si le parcours chargé passe près des points de départ et d’arrivée d’un Spot (moins de 1 500 m chacun, dans le bon ordre), son bouton apparaît en bas à gauche. Le sélectionner ouvre la Vue Chrono recoupée sur ces points et affiche les détails du Spot ; la flèche du panneau revient à la liste et à la trace CSV complète. La description et les informations générales affichées sont provisoires.
 
 Les zones de freinage modéré sont affichées en bleu. Les zones de slide détectées sont affichées en violet, notamment lorsque le GyroZ dépasse le seuil utilisé par l’application.
 

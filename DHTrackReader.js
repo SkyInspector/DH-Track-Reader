@@ -25,10 +25,17 @@
   const speedMarkerLayer = L.layerGroup().addTo(map);
   const slidingLayer = L.layerGroup().addTo(map);
   const airbrakeLayer = L.layerGroup().addTo(map);
+  const spotStorageKey = "dh-track-reader.spots.v1";
+  const spotMatchRadiusMeters = 1500;
   let records = [];
   let rawRows = [];
-  let meta = {};
-  let fileLabel = "";
+  let spots = [];
+  let activeSelection = null;
+  let spotMatches = [];
+  let viewMode = "csv";
+  let chronoSpotId = null;
+  let chronoViewNeedsFit = false;
+  let spotStorageError = null;
   let hoverMapPoints = [];
   let hoverPixelPoints = [];
   let hoverSpeedTooltip = null;
@@ -166,6 +173,210 @@
     $("notice").style.display = "none";
   }
 
+  function isValidCoordinate(point) {
+    return point && Number.isFinite(point.lat) && Number.isFinite(point.lon);
+  }
+
+  function readSavedSpots() {
+    let serialized;
+    try {
+      serialized = window.localStorage.getItem(spotStorageKey);
+    } catch (error) {
+      spotStorageError = `Impossible d’accéder aux Spots enregistrés dans ce navigateur : ${error.message}`;
+      showNotice(spotStorageError, true);
+      return [];
+    }
+    if (!serialized) return [];
+
+    try {
+      const saved = JSON.parse(serialized);
+      const valid = Array.isArray(saved) && saved.every((spot) =>
+        spot && typeof spot.id === "string" && typeof spot.name === "string"
+        && isValidCoordinate(spot.start) && isValidCoordinate(spot.end)
+        && Array.isArray(spot.runs) && spot.runs.every((run) =>
+          run && typeof run.key === "string" && typeof run.fileLabel === "string"
+          && Number.isFinite(run.seconds) && typeof run.savedAt === "string"));
+      if (!valid) throw new Error("format de données invalide");
+      spotStorageError = null;
+      return saved;
+    } catch (error) {
+      spotStorageError = `Impossible de lire les Spots enregistrés : ${error.message}`;
+      showNotice(spotStorageError, true);
+      return [];
+    }
+  }
+
+  function persistSpots(nextSpots) {
+    try {
+      window.localStorage.setItem(spotStorageKey, JSON.stringify(nextSpots));
+      spots = nextSpots;
+      spotStorageError = null;
+      return true;
+    } catch (error) {
+      spotStorageError = `Impossible d’enregistrer le Spot dans ce navigateur : ${error.message}`;
+      showNotice(spotStorageError, true);
+      return false;
+    }
+  }
+
+  function findSpotSegment(spot) {
+    let nearestStart = null;
+    let bestSegment = null;
+    records.forEach((point, index) => {
+      const startDistance = distanceMeters(point, spot.start);
+      if (startDistance <= spotMatchRadiusMeters
+        && (!nearestStart || startDistance < nearestStart.distance)) {
+        nearestStart = { index, distance: startDistance };
+      }
+
+      if (!nearestStart || index <= nearestStart.index) return;
+      const endDistance = distanceMeters(point, spot.end);
+      if (endDistance > spotMatchRadiusMeters) return;
+      const totalDistance = nearestStart.distance + endDistance;
+      if (!bestSegment || totalDistance < bestSegment.totalDistance) {
+        bestSegment = {
+          spot,
+          startIndex: nearestStart.index,
+          endIndex: index,
+          startDistance: nearestStart.distance,
+          endDistance,
+          totalDistance
+        };
+      }
+    });
+    return bestSegment;
+  }
+
+  function recomputeSpotMatches() {
+    spotMatches = records.length
+      ? spots.map(findSpotSegment).filter(Boolean).sort((a, b) => a.totalDistance - b.totalDistance)
+      : [];
+  }
+
+  function renderSpotDetails(panel, match) {
+    const header = document.createElement("div");
+    header.className = "spot-panel-header";
+    const backButton = document.createElement("button");
+    backButton.type = "button";
+    backButton.className = "spot-back-button";
+    backButton.textContent = "←";
+    backButton.setAttribute("aria-label", "Retour aux Spots et quitter la vue Chrono");
+    backButton.addEventListener("click", selectCsvView);
+    const heading = document.createElement("h2");
+    heading.textContent = match.spot.name;
+    header.append(backButton, heading);
+
+    const descriptionLabel = document.createElement("strong");
+    descriptionLabel.className = "spot-detail-label";
+    descriptionLabel.textContent = "Description";
+    const description = document.createElement("p");
+    description.className = "spot-detail-description";
+    description.textContent = "Une descente fluide avec quelques virages prononcés, idéale pour une belle session.";
+
+    const details = document.createElement("div");
+    details.className = "spot-detail-grid";
+    [
+      ["Type", "Descente"],
+      ["Difficulté", "Intermédiaire"],
+      ["Revêtement", "Asphalte"],
+      ["Départ détecté", `${Math.round(match.startDistance)} m`],
+      ["Arrivée détectée", `${Math.round(match.endDistance)} m`]
+    ].forEach(([label, value]) => {
+      const item = document.createElement("div");
+      item.className = "spot-detail-item";
+      const itemLabel = document.createElement("span");
+      itemLabel.textContent = label;
+      const itemValue = document.createElement("strong");
+      itemValue.textContent = value;
+      item.append(itemLabel, itemValue);
+      details.append(item);
+    });
+
+    const note = document.createElement("p");
+    note.className = "spot-detail-note";
+    note.textContent = "Les informations du Spot seront complétées ultérieurement.";
+    panel.append(header, descriptionLabel, description, details, note);
+  }
+
+  function renderSpotPanel() {
+    const panel = $("spot-panel");
+    panel.replaceChildren();
+    if (!spotMatches.length) {
+      panel.hidden = true;
+      return;
+    }
+
+    const selectedMatch = viewMode === "chrono"
+      ? spotMatches.find((match) => match.spot.id === chronoSpotId)
+      : null;
+    if (selectedMatch) {
+      renderSpotDetails(panel, selectedMatch);
+      panel.hidden = false;
+      return;
+    }
+
+    const heading = document.createElement("h2");
+    heading.textContent = "Spots reconnus";
+    const choices = document.createElement("div");
+    choices.className = "spot-choices";
+    spotMatches.forEach((match) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "spot-choice";
+      if (viewMode === "chrono" && chronoSpotId === match.spot.id) button.classList.add("active");
+      const name = document.createElement("strong");
+      name.textContent = match.spot.name;
+      const distance = document.createElement("span");
+      const current = viewMode === "chrono" && chronoSpotId === match.spot.id;
+      distance.textContent = `${current ? "Vue Chrono active · " : "Vue Chrono · "}départ ${Math.round(match.startDistance)} m · arrivée ${Math.round(match.endDistance)} m`;
+      button.append(name, distance);
+      button.addEventListener("click", () => selectChronoView(match));
+      choices.append(button);
+    });
+    panel.append(heading, choices);
+    panel.hidden = false;
+  }
+
+  function selectChronoView(match) {
+    viewMode = "chrono";
+    chronoSpotId = match.spot.id;
+    trimStartIndex = match.startIndex;
+    trimEndIndex = match.endIndex;
+    chartView = null;
+    chronoViewNeedsFit = true;
+    updateView();
+  }
+
+  function selectCsvView() {
+    viewMode = "csv";
+    chronoSpotId = null;
+    trimStartIndex = 0;
+    trimEndIndex = records.length - 1;
+    chartView = null;
+    chronoViewNeedsFit = false;
+    updateView();
+  }
+
+  function createSpotId() {
+    return `spot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function saveCurrentSpot(name) {
+    if (!activeSelection) return false;
+    const spot = {
+      id: createSpotId(),
+      name,
+      start: activeSelection.start,
+      end: activeSelection.end,
+      createdAt: new Date().toISOString(),
+      runs: []
+    };
+    if (!persistSpots([...spots, spot])) return false;
+    recomputeSpotMatches();
+    renderSpotPanel();
+    return true;
+  }
+
   function parseCsvRow(line) {
     const values = [];
     let value = "";
@@ -194,11 +405,6 @@
     const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
     const csvHeaderIndex = lines.findIndex((line) => /^\s*Record\s*,\s*Time\s*,\s*Latitude\s*,\s*Longitude\s*,\s*Altitude\s*,\s*Speed\s*,/i.test(line));
     if (csvHeaderIndex >= 0) {
-      meta = {};
-      for (const line of lines.slice(0, csvHeaderIndex)) {
-        const [key, ...values] = parseCsvRow(line);
-        if (key) meta[key] = values.join(", ");
-      }
       const headers = parseCsvRow(lines[csvHeaderIndex]).map((header) => header.toLowerCase());
       const column = (name) => headers.indexOf(name.toLowerCase());
       const requiredColumns = ["time", "latitude", "longitude", "altitude", "speed", "gyrox", "gyroy", "gyroz"];
@@ -243,21 +449,16 @@
       trimEndIndex = records.length - 1;
       chartView = null;
       selectedPointIndex = null;
+      viewMode = "csv";
+      chronoSpotId = null;
+      chronoViewNeedsFit = false;
       const invalid = records.filter((row) => Math.abs(row.lat) > 90 || Math.abs(row.lon) > 180);
       if (invalid.length) throw new Error("Les coordonnées GPS du CSV ne sont pas valides.");
-      const sessionDate = meta["Date UTC"] || meta["Date"] || "";
-      $("session").textContent = `${sessionDate ? `Session RaceBox : ${sessionDate}` : "Session RaceBox"} · ${records.length.toLocaleString("fr-FR")} mesures`;
       return;
     }
 
     const dataIndex = lines.findIndex((line) => /^\s*\[data\]\s*$/i.test(line));
     if (dataIndex < 0) throw new Error("En-tête CSV RaceBox introuvable. Vérifiez le format du fichier .csv.");
-
-    meta = {};
-    for (const line of lines.slice(0, dataIndex)) {
-      const match = line.match(/^\s*([^:]+):\s*(.*?)\s*$/);
-      if (match) meta[match[1].trim()] = match[2].trim();
-    }
 
     rawRows = lines.slice(dataIndex + 1).map((line) => line.trim().split(/\s+/))
       .filter((parts) => parts.length >= 7 && parts.slice(1, 7).every((part) => Number.isFinite(Number(part))))
@@ -282,9 +483,11 @@
     trimEndIndex = records.length - 1;
     chartView = null;
     selectedPointIndex = null;
+    viewMode = "csv";
+    chronoSpotId = null;
+    chronoViewNeedsFit = false;
     const invalid = records.filter((row) => Math.abs(row.lat) > 90 || Math.abs(row.lon) > 180);
     if (invalid.length) throw new Error("Les coordonnées ne correspondent pas à un format GPS reconnu.");
-    $("session").textContent = `${meta["UTC Date Started"] ? `Session UTC : ${meta["UTC Date Started"]}` : "Session Dragy"} · Format de coordonnées détecté : ${coordinateFormat.label}`;
   }
 
   function detectCoordinateFormat(rows) {
@@ -377,18 +580,6 @@
       const slope = (count * sumXY - sumX * sumY) / denominator;
       return { ...point, gradePercent: slope * 100 };
     });
-  }
-
-  function parseTimestamp(time, startDate) {
-    const isoTimestamp = Date.parse(time);
-    if (Number.isFinite(isoTimestamp)) return isoTimestamp;
-    const match = time.match(/^(\d{2})(\d{2})(\d{2})(?:\.(\d+))?$/);
-    if (!match) return null;
-    const [, hours, minutes, seconds, fraction = "0"] = match;
-    const dateMatch = startDate && startDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-    if (!dateMatch) return null;
-    const [, day, month, year] = dateMatch;
-    return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds), Number((fraction + "00").slice(0, 3)));
   }
 
   function formatDuration(seconds) {
@@ -484,7 +675,9 @@
     followTargetElapsed = point.elapsed;
     if (reveal && (point.elapsed < chartRange.viewStart || point.elapsed > chartRange.viewEnd)) {
       const viewDuration = chartRange.viewDuration;
-      const start = clamp(point.elapsed - viewDuration / 2, 0, Math.max(0, chartRange.duration - viewDuration));
+      const start = clamp(point.elapsed - viewDuration / 2,
+        viewMode === "chrono" ? chartPoints[trimStartIndex].elapsed : 0,
+        (viewMode === "chrono" ? chartPoints[trimEndIndex].elapsed : chartRange.duration) - viewDuration);
       chartView = { start, end: start + viewDuration };
       renderSpeedChart(chartPoints, false);
       point = chartPoints[index];
@@ -501,7 +694,9 @@
       $("current-gforce").innerHTML = Number.isFinite(point.gForceX)
         ? `${point.gForceX.toFixed(2)} / ${point.gForceY.toFixed(2)} / ${point.gForceZ.toFixed(2)} <small>g</small>`
         : "—";
-    $("chart-time").textContent = formatDuration(point.elapsed);
+    $("chart-time").textContent = formatDuration(viewMode === "chrono"
+      ? point.elapsed - chartPoints[trimStartIndex].elapsed
+      : point.elapsed);
     showMapPoint(index);
   }
 
@@ -522,10 +717,22 @@
       chartPoints.forEach((point, index) => { point.elapsed = index; });
     }
     const fullDuration = chartPoints[chartPoints.length - 1].elapsed || duration;
+    const chronoStart = viewMode === "chrono" ? chartPoints[trimStartIndex].elapsed : 0;
+    const chronoEnd = viewMode === "chrono" ? chartPoints[trimEndIndex].elapsed : fullDuration;
+    if (viewMode === "chrono" && chronoViewNeedsFit) {
+      chartView = { start: chronoStart, end: chronoEnd };
+      chronoViewNeedsFit = false;
+    }
     if (!chartView) chartView = { start: 0, end: fullDuration };
-    const viewDuration = clamp(chartView.end - chartView.start, Math.min(fullDuration, 1), fullDuration);
-    const viewStart = clamp(chartView.start, 0, fullDuration - viewDuration);
+    const minViewDuration = viewMode === "chrono"
+      ? Math.min(fullDuration, Math.max(0.01, Math.min(1, chronoEnd - chronoStart)))
+      : Math.min(fullDuration, 1);
+    const viewDuration = clamp(chartView.end - chartView.start, minViewDuration, fullDuration);
+    const viewStart = clamp(chartView.start, viewMode === "chrono" ? chronoStart : 0,
+      (viewMode === "chrono" ? chronoEnd : fullDuration) - viewDuration);
     const viewEnd = viewStart + viewDuration;
+    const axisStart = viewMode === "chrono" ? viewStart - chronoStart : viewStart;
+    const axisEnd = viewMode === "chrono" ? viewEnd - chronoStart : viewEnd;
     chartView = { start: viewStart, end: viewEnd };
     const maxSpeed = Math.max(10, Math.ceil(points.reduce((maximum, point) => Math.max(maximum, point.speed), 0) / 10) * 10);
     const left = 48;
@@ -566,8 +773,9 @@
     const visibleStartX = clamp(startX, left, right);
     const visibleEndX = clamp(endX, left, right);
     const bracket = (x) => `M${x - 5},${top}H${x + 5}M${x},${top}V${bottom}M${x - 5},${bottom}H${x + 5}`;
+    const trimControls = viewMode === "chrono" ? "" : `<rect class="chart-trim-hit" data-trim-handle="start" x="${clamp(startX, left, right) - 9}" y="${top}" width="18" height="${height}" style="${startX < left || startX > right ? "display:none" : ""}"></rect><rect class="chart-trim-hit" data-trim-handle="end" x="${clamp(endX, left, right) - 9}" y="${top}" width="18" height="${height}" style="${endX < left || endX > right ? "display:none" : ""}"></rect><path class="chart-trim-bracket" d="${bracket(visibleStartX)} ${bracket(visibleEndX)}"></path>`;
     const svg = $("speed-chart");
-    svg.innerHTML = `${grid}<text x="${left}" y="182">${formatDuration(viewStart)}</text><text x="${right}" y="182" text-anchor="end">${formatDuration(viewEnd)}</text><defs><clipPath id="chart-plot-clip"><rect x="${left}" y="${top}" width="${width}" height="${height}"></rect></clipPath></defs><g clip-path="url(#chart-plot-clip)"><path class="chart-line" d="${path}"></path><rect class="chart-excluded" x="${left}" y="${top}" width="${Math.max(0, visibleStartX - left)}" height="${height}"></rect><rect class="chart-excluded" x="${visibleEndX}" y="${top}" width="${Math.max(0, right - visibleEndX)}" height="${height}"></rect><path class="chart-selected-line" d="${selectedPath}"></path><path class="chart-braking-weak" d="${brakingPath(weakBraking)}"></path><path class="chart-braking-strong" d="${brakingPath(strongBraking)}"></path><line id="chart-cursor" class="chart-cursor" x1="${firstPoint.x}" y1="${top}" x2="${firstPoint.x}" y2="${bottom}"></line><circle id="chart-point" class="chart-point" cx="${firstPoint.x}" cy="${firstPoint.y}" r="5"></circle></g><rect class="chart-pan-hit" x="${left}" y="${top}" width="${width}" height="${height}"></rect><rect class="chart-trim-hit" data-trim-handle="start" x="${clamp(startX, left, right) - 9}" y="${top}" width="18" height="${height}" style="${startX < left || startX > right ? "display:none" : ""}"></rect><rect class="chart-trim-hit" data-trim-handle="end" x="${clamp(endX, left, right) - 9}" y="${top}" width="18" height="${height}" style="${endX < left || endX > right ? "display:none" : ""}"></rect><path class="chart-trim-bracket" d="${bracket(visibleStartX)} ${bracket(visibleEndX)}"></path>`;
+    svg.innerHTML = `${grid}<text x="${left}" y="182">${formatDuration(axisStart)}</text><text x="${right}" y="182" text-anchor="end">${formatDuration(axisEnd)}</text><defs><clipPath id="chart-plot-clip"><rect x="${left}" y="${top}" width="${width}" height="${height}"></rect></clipPath></defs><g clip-path="url(#chart-plot-clip)"><path class="chart-line" d="${path}"></path><rect class="chart-excluded" x="${left}" y="${top}" width="${Math.max(0, visibleStartX - left)}" height="${height}"></rect><rect class="chart-excluded" x="${visibleEndX}" y="${top}" width="${Math.max(0, right - visibleEndX)}" height="${height}"></rect><path class="chart-selected-line" d="${selectedPath}"></path><path class="chart-braking-weak" d="${brakingPath(weakBraking)}"></path><path class="chart-braking-strong" d="${brakingPath(strongBraking)}"></path><line id="chart-cursor" class="chart-cursor" x1="${firstPoint.x}" y1="${top}" x2="${firstPoint.x}" y2="${bottom}"></line><circle id="chart-point" class="chart-point" cx="${firstPoint.x}" cy="${firstPoint.y}" r="5"></circle></g><rect class="chart-pan-hit" x="${left}" y="${top}" width="${width}" height="${height}"></rect>${trimControls}`;
     $("chart-empty").style.display = "none";
     if (selectedPointIndex !== null && selectedPointIndex >= trimStartIndex && selectedPointIndex <= trimEndIndex) {
       positionChartCursor(selectedPointIndex);
@@ -915,12 +1123,8 @@
     const minAltitude = Math.min(...points.map((row) => row.altitude));
     const maxAltitude = Math.max(...points.map((row) => row.altitude));
     const distance = points.slice(1).reduce((sum, row, index) => sum + distanceMeters(points[index], row), 0);
-    const timestamps = points.map((row) => parseTimestamp(row.time, meta["UTC Date Started"])).filter((value) => value !== null);
-    const elapsed = timestamps.length > 1 ? (timestamps[timestamps.length - 1] - timestamps[0]) / 1000 : 0;
-
     $("vmax").innerHTML = `${vmax.speed.toFixed(1)} <small>km/h</small>`;
     $("distance").innerHTML = `${distance >= 1000 ? (distance / 1000).toFixed(2) : Math.round(distance)} <small>${distance >= 1000 ? "km" : "m"}</small>`;
-    $("duration").textContent = formatDuration(elapsed);
     $("altitude").innerHTML = `${minAltitude.toFixed(0)} <small>/</small> ${maxAltitude.toFixed(0)} <small>m</small>`;
 
     const segments = findSpeedSegments(points, segmentSensitivity);
@@ -928,6 +1132,9 @@
     const weakBrakingZones = brakingModes.filter((zone) => zone.mode === "weak");
     const strongBrakingZones = brakingModes.filter((zone) => zone.mode === "strong");
     renderSpeedChart(fullPoints);
+    $("duration").textContent = formatDuration(
+      chartPoints[trimEndIndex].elapsed - chartPoints[trimStartIndex].elapsed
+    );
     if (hoverSpeedTooltip) hoverSpeedTooltip.remove();
     refreshHoverPixelPoints(points);
     layer.clearLayers();
@@ -1000,6 +1207,16 @@
     if (lon < 0 || Math.abs(lon) > 25) showNotice(`La trace est située vers ${Math.abs(lon).toFixed(1)}° ${lon < 0 ? "Ouest" : "Est"}. Vérifiez les coordonnées si cela ne correspond pas au lieu de votre session.`);
     else if (segments.length === 0) showNotice("Aucun ralentissement marqué suivi d'une reprise n'a été détecté pour placer les repères VMax/VMin.");
     else clearNotice();
+
+    activeSelection = {
+      start: { lat: points[0].lat, lon: points[0].lon },
+      end: { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon },
+      seconds: Math.max(0, chartPoints[trimEndIndex].elapsed - chartPoints[trimStartIndex].elapsed)
+    };
+    $("save-spot").disabled = false;
+    $("return-to-csv").hidden = viewMode !== "chrono";
+    renderSpotPanel();
+    if (spotStorageError) showNotice(spotStorageError, true);
   }
 
   async function loadFile(file) {
@@ -1008,8 +1225,8 @@
       const text = await file.text();
       parseFile(text);
       setColorDefaultsForSession();
-      fileLabel = file.name;
       $("file-name").textContent = file.name;
+      recomputeSpotMatches();
       $("empty").style.display = "none";
       updateView();
     } catch (error) {
@@ -1031,13 +1248,52 @@
       $("current-gforce").textContent = "—";
       $("chart-time").textContent = "—";
       ["vmax", "distance", "duration", "altitude"].forEach((id) => { $(id).textContent = "—"; });
-      $("session").textContent = "";
+      activeSelection = null;
+      spotMatches = [];
+      viewMode = "csv";
+      chronoSpotId = null;
+      chronoViewNeedsFit = false;
+      $("save-spot").disabled = true;
+      $("return-to-csv").hidden = true;
+      renderSpotPanel();
       $("empty").style.display = "block";
       showNotice(error.message || "Impossible de lire ce fichier.", true);
     }
   }
 
   $("file-input").addEventListener("change", (event) => loadFile(event.target.files[0]));
+  $("save-spot").addEventListener("click", () => {
+    if (!activeSelection) return;
+    $("spot-name").value = "";
+    $("spot-name").setCustomValidity("");
+    $("spot-dialog").showModal();
+    $("spot-name").focus();
+  });
+  $("cancel-spot").addEventListener("click", () => $("spot-dialog").close());
+  $("spot-name").addEventListener("input", (event) => event.target.setCustomValidity(""));
+  $("spot-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const nameInput = $("spot-name");
+    const name = nameInput.value.trim();
+    if (!name) {
+      nameInput.setCustomValidity("Saisissez un nom pour le Spot.");
+      nameInput.reportValidity();
+      return;
+    }
+    if (saveCurrentSpot(name)) {
+      $("spot-dialog").close();
+    }
+  });
+  $("return-to-csv").addEventListener("click", selectCsvView);
+  function setMenuVisibility(visible) {
+    $("top-menu").hidden = !visible;
+    $("show-menu").hidden = visible;
+    $("hide-menu").setAttribute("aria-expanded", String(visible));
+    $("show-menu").setAttribute("aria-expanded", String(!visible));
+    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+  }
+  $("hide-menu").addEventListener("click", () => setMenuVisibility(false));
+  $("show-menu").addEventListener("click", () => setMenuVisibility(true));
   $("show-sliding-zone").addEventListener("change", (event) => {
     if (event.target.checked) slidingLayer.addTo(map);
     else map.removeLayer(slidingLayer);
@@ -1076,7 +1332,9 @@
         const shift = (event.clientX - chartPan.clientX) * 1000 / bounds.width
           * chartRange.viewDuration / chartRange.width;
         const duration = chartPan.end - chartPan.start;
-        const start = clamp(chartPan.start - shift, 0, Math.max(0, chartRange.duration - duration));
+        const domainStart = viewMode === "chrono" ? chartPoints[trimStartIndex].elapsed : 0;
+        const domainEnd = viewMode === "chrono" ? chartPoints[trimEndIndex].elapsed : chartRange.duration;
+        const start = clamp(chartPan.start - shift, domainStart, domainEnd - duration);
         chartView = { start, end: start + duration };
       } else {
         const index = chartIndexAtPointer(event);
@@ -1106,16 +1364,21 @@
     const fraction = clamp((relativeX - chartRange.left) / chartRange.width, 0, 1);
     const oldDuration = chartRange.viewDuration;
     const samplePeriod = chartRange.duration / Math.max(1, chartPoints.length - 1);
-    const minimumDuration = Math.min(chartRange.duration, Math.max(0.5, samplePeriod * 10));
-    const nextDuration = clamp(oldDuration * (event.deltaY < 0 ? 0.8 : 1.25), minimumDuration, chartRange.duration);
+    const domainStart = viewMode === "chrono" ? chartPoints[trimStartIndex].elapsed : 0;
+    const domainEnd = viewMode === "chrono" ? chartPoints[trimEndIndex].elapsed : chartRange.duration;
+    const domainDuration = domainEnd - domainStart;
+    const minimumDuration = Math.min(domainDuration, Math.max(0.5, samplePeriod * 10));
+    const nextDuration = clamp(oldDuration * (event.deltaY < 0 ? 0.8 : 1.25), minimumDuration, domainDuration);
     const anchor = chartRange.viewStart + fraction * oldDuration;
-    const start = clamp(anchor - fraction * nextDuration, 0, chartRange.duration - nextDuration);
+    const start = clamp(anchor - fraction * nextDuration, domainStart, domainEnd - nextDuration);
     chartView = { start, end: start + nextDuration };
     renderSpeedChart(chartPoints, false);
   }, { passive: false });
   $("chart-reset-zoom").addEventListener("click", () => {
     if (!chartPoints.length || !chartRange) return;
-    chartView = { start: 0, end: chartRange.duration };
+    chartView = viewMode === "chrono"
+      ? { start: chartPoints[trimStartIndex].elapsed, end: chartPoints[trimEndIndex].elapsed }
+      : { start: 0, end: chartRange.duration };
     renderSpeedChart(chartPoints, false);
   });
   const syncSmoothingControls = () => {
@@ -1169,6 +1432,7 @@
   });
   window.addEventListener("resize", () => map.invalidateSize());
 
+  spots = readSavedSpots();
   syncColorLimits();
   syncSmoothingControls();
 
@@ -1182,8 +1446,8 @@
       .then((text) => {
         parseFile(text);
         setColorDefaultsForSession();
-        fileLabel = params.get("file");
-        $("file-name").textContent = fileLabel.split(/[\\/]/).pop();
+        $("file-name").textContent = params.get("file").split(/[\\/]/).pop();
+        recomputeSpotMatches();
         updateView();
       })
       .catch((error) => showNotice(error.message, true));
