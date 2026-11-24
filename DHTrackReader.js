@@ -23,9 +23,12 @@
   imagery.addTo(map);
   const layer = L.layerGroup().addTo(map);
   const speedMarkerLayer = L.layerGroup().addTo(map);
+  const spotCornerLayer = L.layerGroup().addTo(map);
   const slidingLayer = L.layerGroup().addTo(map);
   const airbrakeLayer = L.layerGroup().addTo(map);
-  const spotStorageKey = "dh-track-reader.spots.v1";
+  const spotDirectoryDbName = "dh-track-reader-project";
+  const spotDirectoryStoreName = "handles";
+  const spotDirectoryHandleKey = "project-directory";
   const spotMatchRadiusMeters = 1500;
   let records = [];
   let rawRows = [];
@@ -36,6 +39,8 @@
   let chronoSpotId = null;
   let chronoViewNeedsFit = false;
   let spotStorageError = null;
+  let spotCorners = [];
+  let spotCornerMarkers = [];
   let hoverMapPoints = [];
   let hoverPixelPoints = [];
   let hoverSpeedTooltip = null;
@@ -177,45 +182,161 @@
     return point && Number.isFinite(point.lat) && Number.isFinite(point.lon);
   }
 
-  function readSavedSpots() {
-    let serialized;
-    try {
-      serialized = window.localStorage.getItem(spotStorageKey);
-    } catch (error) {
-      spotStorageError = `Impossible d’accéder aux Spots enregistrés dans ce navigateur : ${error.message}`;
-      showNotice(spotStorageError, true);
-      return [];
-    }
-    if (!serialized) return [];
+  function persistSpots(nextSpots) {
+    spots = nextSpots;
+    spotStorageError = null;
+    return true;
+  }
 
+  function openSpotDirectoryDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB indisponible"));
+        return;
+      }
+      const request = window.indexedDB.open(spotDirectoryDbName, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains(spotDirectoryStoreName)) {
+          request.result.createObjectStore(spotDirectoryStoreName);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function readProjectDirectoryHandle() {
     try {
-      const saved = JSON.parse(serialized);
-      const valid = Array.isArray(saved) && saved.every((spot) =>
-        spot && typeof spot.id === "string" && typeof spot.name === "string"
-        && isValidCoordinate(spot.start) && isValidCoordinate(spot.end)
-        && Array.isArray(spot.runs) && spot.runs.every((run) =>
-          run && typeof run.key === "string" && typeof run.fileLabel === "string"
-          && Number.isFinite(run.seconds) && typeof run.savedAt === "string"));
-      if (!valid) throw new Error("format de données invalide");
-      spotStorageError = null;
-      return saved;
-    } catch (error) {
-      spotStorageError = `Impossible de lire les Spots enregistrés : ${error.message}`;
-      showNotice(spotStorageError, true);
-      return [];
+      const database = await openSpotDirectoryDatabase();
+      return await new Promise((resolve, reject) => {
+        const request = database.transaction(spotDirectoryStoreName).objectStore(spotDirectoryStoreName).get(spotDirectoryHandleKey);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      });
+    } catch {
+      return null;
     }
   }
 
-  function persistSpots(nextSpots) {
+  async function saveProjectDirectoryHandle(directoryHandle) {
+    const database = await openSpotDirectoryDatabase();
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(spotDirectoryStoreName, "readwrite");
+      transaction.objectStore(spotDirectoryStoreName).put(directoryHandle, spotDirectoryHandleKey);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async function ensureProjectDirectory() {
+    let directoryHandle = await readProjectDirectoryHandle();
+    if (directoryHandle) {
+      if (directoryHandle.queryPermission) {
+        let permission = await directoryHandle.queryPermission({ mode: "readwrite" });
+        if (permission !== "granted" && directoryHandle.requestPermission) {
+          permission = await directoryHandle.requestPermission({ mode: "readwrite" });
+        }
+        if (permission === "granted") return directoryHandle;
+      } else {
+        return directoryHandle;
+      }
+    }
+
+    if (!window.showDirectoryPicker) {
+      throw new Error("Ce navigateur ne permet pas d'écrire directement dans le dossier du projet.");
+    }
+
+    directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    await saveProjectDirectoryHandle(directoryHandle);
+    return directoryHandle;
+  }
+
+  function spotFileName(spot) {
+    const safeName = spot.name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "spot";
+    return `${safeName}.json`;
+  }
+
+  async function updateSpotManifest(spotsDirectory, fileName) {
+    let manifest = [];
     try {
-      window.localStorage.setItem(spotStorageKey, JSON.stringify(nextSpots));
-      spots = nextSpots;
-      spotStorageError = null;
-      return true;
+      const manifestHandle = await spotsDirectory.getFileHandle("index.json", { create: true });
+      try {
+        const manifestFile = await manifestHandle.getFile();
+        const savedManifest = JSON.parse(await manifestFile.text());
+        if (Array.isArray(savedManifest)) manifest = savedManifest;
+      } catch {
+        manifest = [];
+      }
+      if (!manifest.includes(fileName)) manifest.push(fileName);
+      const writable = await manifestHandle.createWritable();
+      await writable.write(new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" }));
+      await writable.close();
+    } catch {
+      // The Spot file remains usable even if the optional manifest cannot be updated.
+    }
+  }
+
+  async function syncProjectSpotFiles() {
+    let directoryHandle;
+    try {
+      directoryHandle = await ensureProjectDirectory();
     } catch (error) {
-      spotStorageError = `Impossible d’enregistrer le Spot dans ce navigateur : ${error.message}`;
+      spotStorageError = error.message;
       showNotice(spotStorageError, true);
       return false;
+    }
+    try {
+      if (directoryHandle.queryPermission) {
+        let permission = await directoryHandle.queryPermission({ mode: "readwrite" });
+        if (permission !== "granted" && directoryHandle.requestPermission) {
+          permission = await directoryHandle.requestPermission({ mode: "readwrite" });
+        }
+        if (permission !== "granted") return false;
+      }
+      const spotsDirectory = await directoryHandle.getDirectoryHandle("Spots", { create: true });
+      const spot = spots[spots.length - 1];
+      if (!spot) return false;
+      const fileHandle = await spotsDirectory.getFileHandle(spotFileName(spot), { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(new Blob([JSON.stringify(spot, null, 2)], { type: "application/json" }));
+      await writable.close();
+
+      await updateSpotManifest(spotsDirectory, spotFileName(spot));
+      clearNotice();
+      return true;
+    } catch (error) {
+      spotStorageError = `Le Spot n'a pas pu être écrit dans le dossier Spots : ${error.message}`;
+      showNotice(spotStorageError, true);
+      return false;
+    }
+  }
+
+  async function readProjectSpotFiles() {
+    const directoryHandle = await readProjectDirectoryHandle();
+    if (!directoryHandle) return [];
+    try {
+      if (directoryHandle.queryPermission) {
+        const permission = await directoryHandle.queryPermission({ mode: "readwrite" });
+        if (permission !== "granted") return [];
+      }
+      const spotsDirectory = await directoryHandle.getDirectoryHandle("Spots", { create: false });
+      const found = [];
+      for await (const [name, handle] of spotsDirectory.entries()) {
+        if (handle.kind !== "file" || !name.toLowerCase().endsWith(".json")) continue;
+        try {
+          const file = await handle.getFile();
+          const spot = JSON.parse(await file.text());
+          if (spot && typeof spot.id === "string" && typeof spot.name === "string"
+            && isValidCoordinate(spot.start) && isValidCoordinate(spot.end)
+            && Array.isArray(spot.runs)) found.push(spot);
+        } catch {
+          // Ignore malformed or inaccessible individual Spot files.
+        }
+      }
+      return found;
+    } catch {
+      return [];
     }
   }
 
@@ -361,17 +482,141 @@
     return `spot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function saveCurrentSpot(name) {
+  function safeFileName(name) {
+    const normalized = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+    return `${normalized || "spot"}.json`;
+  }
+
+  function downloadSpotJson(spot) {
+    const blob = new Blob([JSON.stringify(spot, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = safeFileName(spot.name);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function cornerMarkerIcon(number) {
+    return L.divIcon({
+      className: "",
+      html: `<div style="width:24px;height:24px;border:2px solid #fff;border-radius:50%;background:#e53935;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;box-shadow:0 2px 8px #000b">${number}</div>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+  }
+
+  function renderSpotCorners() {
+    spotCornerLayer.clearLayers();
+    spotCornerMarkers = [];
+    const start = trimStartIndex;
+    const end = trimEndIndex;
+    spotCorners.forEach((corner, index) => {
+      corner.recordIndex = clamp(corner.recordIndex, start, end);
+      const point = records[corner.recordIndex];
+      if (!point) return;
+      const marker = L.marker([point.lat, point.mapLon ?? point.lon], {
+        icon: cornerMarkerIcon(index + 1),
+        title: corner.name || `Virage ${index + 1}`
+      }).addTo(spotCornerLayer);
+      marker.bindTooltip(corner.name || `Virage ${index + 1}`, {
+        permanent: true,
+        direction: "top",
+        offset: [0, -10],
+        className: "spot-marker-label",
+        opacity: 1
+      });
+      spotCornerMarkers.push(marker);
+    });
+  }
+
+  function renderCornerEditor() {
+    const list = $("corner-list");
+    list.replaceChildren();
+    spotCorners.forEach((corner, index) => {
+      const row = document.createElement("div");
+      row.className = "corner-row";
+      const fields = document.createElement("div");
+      fields.className = "corner-fields";
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.maxLength = 60;
+      nameInput.value = corner.name;
+      nameInput.placeholder = `Nom du virage ${index + 1}`;
+      nameInput.addEventListener("input", () => {
+        corner.name = nameInput.value;
+        renderSpotCorners();
+      });
+      const position = document.createElement("input");
+      position.type = "range";
+      position.min = "0";
+      position.max = "100";
+      position.value = String(clamp(corner.positionRatio * 100, 0, 100));
+      position.setAttribute("aria-label", `Position du virage ${index + 1}`);
+      position.addEventListener("input", () => {
+        corner.positionRatio = Number(position.value) / 100;
+        corner.recordIndex = Math.round(trimStartIndex + corner.positionRatio * (trimEndIndex - trimStartIndex));
+        renderSpotCorners();
+      });
+      fields.append(nameInput, position);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "corner-delete";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `Supprimer le virage ${index + 1}`);
+      remove.addEventListener("click", () => {
+        spotCorners.splice(index, 1);
+        spotCorners.forEach((item, itemIndex) => item.positionRatio = item.recordIndex / Math.max(1, trimEndIndex - trimStartIndex));
+        renderCornerEditor();
+        renderSpotCorners();
+      });
+      row.append(fields, remove);
+      list.append(row);
+    });
+  }
+
+  async function saveCurrentSpot(name) {
     if (!activeSelection) return false;
+    const routePoints = records.slice(trimStartIndex, trimEndIndex + 1).map((point) => ({
+      lat: point.lat,
+      lon: point.mapLon ?? point.lon
+    }));
+    const corners = spotCorners.map((corner) => {
+      const point = records[corner.recordIndex];
+      return {
+        id: corner.id,
+        name: corner.name,
+        recordIndex: corner.recordIndex,
+        positionRatio: corner.recordIndex === trimStartIndex
+          ? 0
+          : (corner.recordIndex - trimStartIndex) / Math.max(1, trimEndIndex - trimStartIndex),
+        lat: point.lat,
+        lon: point.mapLon ?? point.lon
+      };
+    }).sort((a, b) => a.recordIndex - b.recordIndex);
     const spot = {
       id: createSpotId(),
       name,
       start: activeSelection.start,
       end: activeSelection.end,
       createdAt: new Date().toISOString(),
+      location: activeSelection.location || "",
+      difficulty: "Intermédiaire",
+      surface: "Asphalte",
+      distanceMeters: activeSelection.distanceMeters,
+      averageGradePercent: activeSelection.averageGradePercent,
+      topSpeedKmh: activeSelection.topSpeedKmh,
+      turns: corners,
+      corners,
+      turnCount: corners.length,
+      route: activeSelection.route,
       runs: []
     };
     if (!persistSpots([...spots, spot])) return false;
+    downloadSpotJson(spot);
     recomputeSpotMatches();
     renderSpotPanel();
     return true;
@@ -1211,7 +1456,15 @@
     activeSelection = {
       start: { lat: points[0].lat, lon: points[0].lon },
       end: { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon },
-      seconds: Math.max(0, chartPoints[trimEndIndex].elapsed - chartPoints[trimStartIndex].elapsed)
+      seconds: Math.max(0, chartPoints[trimEndIndex].elapsed - chartPoints[trimStartIndex].elapsed),
+      distanceMeters: distance,
+      averageGradePercent: (() => {
+        const grades = points.map((point) => point.gradePercent).filter((grade) => Number.isFinite(grade));
+        return grades.length ? grades.reduce((sum, grade) => sum + grade, 0) / grades.length : null;
+      })(),
+      topSpeedKmh: vmax.speed,
+      route: points.map((point) => ({ lat: point.lat, lon: point.mapLon })),
+      location: `${Math.abs(points[0].lat).toFixed(2)}°${points[0].lat >= 0 ? "N" : "S"} · ${Math.abs(points[0].lon).toFixed(2)}°${points[0].lon >= 0 ? "E" : "O"}`
     };
     $("save-spot").disabled = false;
     $("return-to-csv").hidden = viewMode !== "chrono";
@@ -1266,12 +1519,41 @@
     if (!activeSelection) return;
     $("spot-name").value = "";
     $("spot-name").setCustomValidity("");
-    $("spot-dialog").showModal();
+    $("spot-start-range").textContent = `${trimStartIndex + 1} / ${records.length}`;
+    $("spot-end-range").textContent = `${trimEndIndex + 1} / ${records.length}`;
+    spotCorners = [];
+    renderCornerEditor();
+    renderSpotCorners();
+    $("spot-dialog").hidden = false;
     $("spot-name").focus();
   });
-  $("cancel-spot").addEventListener("click", () => $("spot-dialog").close());
+  $("cancel-spot").addEventListener("click", () => {
+    $("spot-dialog").hidden = true;
+    spotCornerLayer.clearLayers();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("spot-dialog").hidden) {
+      $("spot-dialog").hidden = true;
+      spotCornerLayer.clearLayers();
+    }
+  });
   $("spot-name").addEventListener("input", (event) => event.target.setCustomValidity(""));
-  $("spot-form").addEventListener("submit", (event) => {
+  $("add-corner").addEventListener("click", () => {
+    const index = spotCorners.length;
+    const positionRatio = index === 0
+      ? 0.5
+      : clamp((spotCorners[index - 1].positionRatio + 0.15), 0, 1);
+    const recordIndex = Math.round(trimStartIndex + positionRatio * (trimEndIndex - trimStartIndex));
+    spotCorners.push({
+      id: `corner-${Date.now().toString(36)}-${index}`,
+      name: "",
+      recordIndex,
+      positionRatio
+    });
+    renderCornerEditor();
+    renderSpotCorners();
+  });
+  $("spot-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const nameInput = $("spot-name");
     const name = nameInput.value.trim();
@@ -1280,8 +1562,9 @@
       nameInput.reportValidity();
       return;
     }
-    if (saveCurrentSpot(name)) {
-      $("spot-dialog").close();
+    if (await saveCurrentSpot(name)) {
+      $("spot-dialog").hidden = true;
+      spotCornerLayer.clearLayers();
     }
   });
   $("return-to-csv").addEventListener("click", selectCsvView);
@@ -1432,9 +1715,14 @@
   });
   window.addEventListener("resize", () => map.invalidateSize());
 
-  spots = readSavedSpots();
   syncColorLimits();
   syncSmoothingControls();
+  readProjectSpotFiles().then((savedSpots) => {
+    spots = savedSpots;
+    recomputeSpotMatches();
+    renderSpotPanel();
+    if (records.length) updateView();
+  });
 
   const params = new URLSearchParams(location.search);
   if (params.get("file")) {

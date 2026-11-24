@@ -1,0 +1,344 @@
+.spot-list-page .top-menu-titles a {
+  color: var(--text);
+  font-size: clamp(10px, 1.4vw, 13px);
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.spot-list-page .top-menu-titles a.active {
+  color: var(--accent-bright);
+}
+
+.spot-list-app {
+  grid-template-columns: 350px minmax(0, 1fr);
+}
+
+.spot-list-sidebar {
+  padding: 22px 18px;
+  overflow: hidden;
+}
+
+.spot-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.spot-list-heading h1 {
+  margin-top: 2px;
+}
+
+.spot-list-eyebrow {
+  color: var(--accent-bright);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+
+.spot-count {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: #8f2022;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.spot-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+  background: var(--panel-raised);
+}
+
+.spot-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.spot-sort-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.spot-sort-row select {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  color: var(--text);
+  padding: 0 9px;
+}
+
+.spot-list {
+  display: grid;
+  gap: 8px;
+  max-height: calc(100dvh - 230px);
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.spot-list-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 68px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-raised);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.spot-list-item:hover,
+.spot-list-item.active {
+  border-color: var(--accent-bright);
+  background: var(--panel-hover);
+}
+
+.spot-list-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px #e5393566;
+  font-size: 17px;
+}
+
+.spot-list-copy {
+  min-width: 0;
+}
+
+.spot-list-copy strong,
+.spot-list-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spot-list-copy strong {
+  font-size: 13px;
+}
+
+.spot-list-copy span {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.spot-difficulty {
+  padding: 4px 7px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: #ddd4d5;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.spot-list-main {
+  display: block;
+  width: 100%;
+  height: 100%;
+  grid-template: none;
+}
+
+.spot-map-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  background: #111113;
+}
+
+.spot-empty {
+  position: absolute;
+  z-index: 500;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 6px;
+  min-width: 260px;
+  padding: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 9px;
+  background: #151416ef;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.spot-empty span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.spot-label-toggle {
+  position: absolute;
+  z-index: 500;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+  background: #151416ed;
+  box-shadow: 0 2px 8px #0008;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spot-label-toggle input {
+  accent-color: var(--accent);
+}
+
+.spot-file-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.spot-file-actions button {
+  min-height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.spot-file-actions button:hover {
+  border-color: var(--accent-bright);
+  background: var(--panel-hover);
+}
+
+.spot-info {
+  position: absolute;
+  z-index: 700;
+  left: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100% - 32px));
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 9px;
+  background: #151416f2;
+  box-shadow: 0 5px 18px #000a;
+}
+
+.spot-info h2 {
+  margin: 0 34px 10px 0;
+  color: var(--accent-bright);
+  font-size: 16px;
+}
+
+.spot-info-close {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.spot-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+}
+
+.spot-info-grid div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+}
+
+.spot-info-grid span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.spot-info-grid strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spot-marker {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px #e5393544, 0 3px 10px #000b;
+}
+
+.spot-marker-label {
+  border: 1px solid var(--accent-bright);
+  border-radius: 6px;
+  background: #151416;
+  color: #fff;
+  box-shadow: 0 3px 10px #0008;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.spot-marker-label::before {
+  border-top-color: var(--accent-bright);
+}
+
+@media (max-width: 700px) {
+  .spot-list-app {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+}

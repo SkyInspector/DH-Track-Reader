@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DH Track Reader - Spot List</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="DHTrackReader.css">
+  <link rel="stylesheet" href="SpotList.css">
+</head>
+<body class="spot-list-page">
+  <header id="top-menu" class="top-menu">
+    <nav class="top-menu-titles" aria-label="Sections principales">
+      <a href="DHTrackReader.html">CARTE</a>
+      <a href="DHTrackReader.html">RUN PREVIEW</a>
+      <a class="active" href="SpotList.html" aria-current="page">SPOT LIST</a>
+    </nav>
+    <button id="hide-menu" class="hide-menu-button" type="button" aria-controls="top-menu" aria-expanded="true">HIDE</button>
+  </header>
+  <button id="show-menu" class="show-menu-button" type="button" aria-controls="top-menu" aria-expanded="false" hidden>SHOW MENU</button>
+
+  <div class="app spot-list-app">
+    <aside class="spot-list-sidebar">
+      <div class="spot-list-heading">
+        <div>
+          <span class="spot-list-eyebrow">Collection</span>
+          <h1>Spot List</h1>
+        </div>
+        <span id="spot-count" class="spot-count">0</span>
+      </div>
+
+      <label class="spot-search" for="spot-search">
+        <span aria-hidden="true">⌕</span>
+        <input id="spot-search" type="search" placeholder="Rechercher un Spot">
+      </label>
+
+      <div class="spot-sort-row">
+        <label for="spot-sort">Trier par</label>
+        <select id="spot-sort">
+          <option value="name">Nom</option>
+          <option value="location">Emplacement</option>
+          <option value="difficulty">Difficulté</option>
+          <option value="surface">Revêtement</option>
+          <option value="createdAt">Date d'ajout</option>
+        </select>
+      </div>
+
+      <div class="spot-file-actions">
+        <button id="import-spots" type="button">Importer</button>
+        <button id="export-spots" type="button">Exporter</button>
+        <button id="choose-folder" type="button" title="Choisir le dossier Spots du projet">Dossier Spots</button>
+        <input id="import-spots-file" type="file" accept=".json,application/json" hidden>
+      </div>
+
+      <div id="spot-list" class="spot-list" aria-live="polite"></div>
+    </aside>
+
+    <main class="spot-list-main">
+      <div class="spot-map-panel">
+        <div id="map" aria-label="Carte des Spots enregistrés"></div>
+        <div id="spot-empty" class="spot-empty">
+          <strong>Aucun Spot enregistré</strong>
+          <span>Enregistrez un Spot depuis la vue Carte.</span>
+        </div>
+        <label class="spot-label-toggle" for="show-spot-labels">
+          <input id="show-spot-labels" type="checkbox" checked>
+          <span>Afficher les étiquettes</span>
+        </label>
+        <section id="spot-info" class="spot-info" aria-live="polite" hidden>
+          <button id="close-spot-info" class="spot-info-close" type="button" aria-label="Fermer les informations">×</button>
+          <h2 id="spot-info-name"></h2>
+          <div class="spot-info-grid">
+            <div><span>Distance</span><strong id="spot-info-distance">—</strong></div>
+            <div><span>Pente Moyenne</span><strong id="spot-info-grade">—</strong></div>
+            <div><span>Nombre de virages</span><strong id="spot-info-turns">—</strong></div>
+            <div><span>Top Speed</span><strong id="spot-info-speed">—</strong></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="SpotList.js?v=20261123"></script>
+</body>
+</html>

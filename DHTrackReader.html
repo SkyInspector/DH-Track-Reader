@@ -10,9 +10,9 @@
 <body>
   <header id="top-menu" class="top-menu">
     <nav class="top-menu-titles" aria-label="Sections principales">
-      <span>CARTE</span>
-      <span>RUN PREVIEW</span>
-      <span>SPOT LIST</span>
+      <a href="DHTrackReader.html">CARTE</a>
+      <a href="DHTrackReader.html">RUN PREVIEW</a>
+      <a href="SpotList.html">SPOT LIST</a>
     </nav>
     <button id="hide-menu" class="hide-menu-button" type="button" aria-controls="top-menu" aria-expanded="true">HIDE</button>
   </header>
@@ -83,7 +83,7 @@
             <span id="smoothing-strength-value">0,4 s</span>
           </label>
           <button id="return-to-csv" class="mode-button" type="button" hidden>Vue fichier CSV</button>
-          <button id="save-spot" class="save-spot-button" type="button" disabled>Enregistrer le Spot</button>
+          <button id="save-spot" class="save-spot-button" type="button" disabled>Create Spot</button>
         </div>
         <div class="telemetry-values">
           <div class="telemetry-value"><span>Vitesse :</span><strong id="current-speed">—</strong></div>
@@ -106,18 +106,27 @@
       </section>
     </main>
   </div>
-  <dialog id="spot-dialog" class="spot-dialog">
+  <section id="spot-dialog" class="spot-dialog" aria-label="Création du Spot" hidden>
     <form id="spot-form">
-      <h2>Enregistrer le Spot</h2>
+      <h2>Create Spot</h2>
       <label for="spot-name">Nom du Spot</label>
       <input id="spot-name" name="spot-name" type="text" maxlength="60" required autocomplete="off">
-      <p class="spot-dialog-note">Le Spot et ses coordonnées GPS seront sauvegardés dans ce navigateur uniquement.</p>
+      <div class="spot-create-range">
+        <span>Départ</span><strong id="spot-start-range">—</strong>
+        <span>Arrivée</span><strong id="spot-end-range">—</strong>
+      </div>
+      <div class="corner-heading">
+        <strong>Virages</strong>
+      </div>
+      <div id="corner-list" class="corner-list"></div>
+      <button id="add-corner" type="button">+ Add corner</button>
+      <p class="spot-dialog-note">Le Spot sera enregistré dans un fichier JSON portable. Vous pourrez le placer dans le dossier <code>Spots</code> et le partager.</p>
       <div class="spot-dialog-actions">
         <button id="cancel-spot" type="button">Annuler</button>
-        <button class="save-spot-button" type="submit">Confirmer</button>
+        <button class="save-spot-button" type="submit">Confirm Spot</button>
       </div>
     </form>
-  </dialog>
+  </section>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
   <script src="DHTrackReader.js"></script>
